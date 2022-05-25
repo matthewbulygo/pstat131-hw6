@@ -106,16 +106,55 @@ First, set up a decision tree model and workflow. Tune the `cost_complexity` hyp
 Print an `autoplot()` of the results. What do you observe? Does a single decision tree perform better with a smaller or larger complexity penalty?
 
 ```{r}
+tree_spec <- decision_tree() %>%
+  set_engine("rpart")
 
+class_tree_spec <- tree_spec %>%
+  set_mode("classification")
+
+class_tree_wf <- workflow() %>%
+  add_model(class_tree_spec %>% set_args(cost_complexity = tune())) %>%
+  add_recipe(pokemon_recipe)
+
+param_grid <- grid_regular(cost_complexity(range = c(-3, -1)), levels = 10)
+
+tune_res <- tune_grid(
+  class_tree_wf, 
+  resamples = pokemon_fold, 
+  grid = param_grid, 
+  metrics = metric_set(roc_auc)
+)
+
+autoplot(tune_res)
 ```
+
+It performs better with smaller complexity penalty. 
 
 ### Exercise 4
 
 What is the `roc_auc` of your best-performing pruned decision tree on the folds? *Hint: Use `collect_metrics()` and `arrange()`.*
 
+```{r}
+arrange(collect_metrics(tune_res), desc(mean))
+```
+
+The best performing roc_auc is 0.6202.
+
 ### Exercise 5
 
 Using `rpart.plot`, fit and visualize your best-performing pruned decision tree with the *training* set.
+
+```{r}
+best_complexity <- select_best(tune_res)
+
+class_tree_final <- finalize_workflow(class_tree_wf, best_complexity)
+
+class_tree_final_fit <- fit(class_tree_final, data = pokemon_train)
+
+class_tree_final_fit %>%
+  extract_fit_engine() %>%
+  rpart.plot()
+```
 
 ### Exercise 5
 
@@ -123,9 +162,37 @@ Now set up a random forest model and workflow. Use the `ranger` engine and set `
 
 Create a regular grid with 8 levels each. You can choose plausible ranges for each hyperparameter. Note that `mtry` should not be smaller than 1 or larger than 8. **Explain why not. What type of model would `mtry = 8` represent?**
 
+```{r}
+rf_spec <- rand_forest() %>%
+  set_engine("ranger", importance = "impurity") %>%
+  set_mode("classification")
+
+rf_wf <- workflow() %>%
+  add_model(rf_spec %>% set_args(mtry = tune(),
+                                 trees = tune(),
+                                 min_n = tune()
+                                 )) %>%
+  add_recipe(pokemon_recipe)
+
+regular_grid <- grid_regular(mtry(range=c(1,8)), trees(range = c(1, 8)), min_n(range = c(1, 8)) , levels=8)
+```
+
+mtry is the number of predictors in the model, trees is the number of trees, and min_n is the minimal node size. 
+
 ### Exercise 6
 
 Specify `roc_auc` as a metric. Tune the model and print an `autoplot()` of the results. What do you observe? What values of the hyperparameters seem to yield the best performance?
+
+```{r}
+tune_res2 <- tune_grid(
+  rf_wf, 
+  resamples = pokemon_fold, 
+  grid = regular_grid, 
+  metrics = metric_set(roc_auc)
+)
+
+autoplot(tune_res2)
+```
 
 ### Exercise 7
 
